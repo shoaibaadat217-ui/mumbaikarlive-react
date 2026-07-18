@@ -1,8 +1,20 @@
 import { useState, useEffect, useRef } from "react";
-import { Train, MapPin, Clock, Share2, ChevronDown, AlertCircle, CheckCircle2, TrendingUp, Shield, Smartphone, Camera, X, Navigation, History } from "lucide-react";
+import { Train, MapPin, Clock, Share2, ChevronDown, AlertCircle, CheckCircle2, TrendingUp, Shield, Smartphone, Camera, X, Navigation, History, Phone, MessageSquare, Trophy, Star, Award } from "lucide-react";
 
 const SUPABASE_URL = "https://loblkqxsxlcmmamwjibp.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxvYmxrcXhzeGxjbW1hbXdqaWJwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQyMTE4NDQsImV4cCI6MjA5OTc4Nzg0NH0.Vi7nYkCBUCnZvpNviQ8Ps__RHp5_BlIMx6lCWVmx-QE";
+const STALE_MINUTES = 45;
+
+const HELPLINES = [
+  { name: "Western Railway Helpline", number: "139", desc: "Enquiry, complaints, lost & found" },
+  { name: "Central Railway Helpline", number: "139", desc: "Enquiry, complaints, lost & found" },
+  { name: "Mumbai Metro Line 1", number: "1800-120-3999", desc: "Versova–Ghatkopar metro helpline" },
+  { name: "Mumbai Metro Line 3 (Aqua)", number: "1800-266-0000", desc: "Aarey–Cuffe Parade metro helpline" },
+  { name: "Railway Police (RPF)", number: "1800-111-322", desc: "Security & safety emergencies" },
+  { name: "Mumbai Police", number: "100", desc: "Emergency police assistance" },
+  { name: "Railway Medical Emergency", number: "138", desc: "Medical help at stations" },
+  { name: "Anti-Corruption Helpline", number: "155210", desc: "Report bribery at stations" },
+];
 
 const STATION_COORDS: Record<string, [number, number]> = {
   "Churchgate": [18.9322, 72.8264], "Marine Lines": [18.9436, 72.8232], "Charni Road": [18.9531, 72.8192],
@@ -55,7 +67,9 @@ const STATION_DATABASE: Record<string, Record<string, string[]>> = {
 };
 
 type CrowdLevel = "🟢 Less / Empty" | "🟡 Moderate" | "🔴 Very Crowded";
+type Tab = "check" | "report" | "history" | "community" | "helpline";
 interface Report { crowd_level: string; reported_at: string; }
+interface LeaderboardEntry { station_name: string; report_count: number; }
 
 function getDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000;
@@ -65,44 +79,11 @@ function getDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: numbe
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-async function fetchLatestReport(station: string): Promise<Report | null> {
+function isStale(iso: string): boolean {
   try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/fetch_latest_report`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
-      body: JSON.stringify({ p_station_name: station }),
-    });
-    const data = await res.json();
-    return data?.[0] ?? null;
-  } catch { return null; }
-}
-
-async function fetchRecentReports(station: string): Promise<Report[]> {
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/fetch_recent_reports`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
-      body: JSON.stringify({ p_station_name: station }),
-    });
-    const data = await res.json();
-    return Array.isArray(data) ? data : [];
-  } catch { return []; }
-}
-
-async function submitReport(transitType: string, stationName: string, crowdLevel: string, proofPhoto: string): Promise<boolean> {
-  try {
-    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/accept_commuter_report`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
-      body: JSON.stringify({ p_transit_type: transitType, p_station_name: stationName, p_crowd_level: crowdLevel, p_proof_photo: proofPhoto }),
-    });
-    return res.ok;
-  } catch { return false; }
-}
-
-function formatTime(iso: string) {
-  try { return new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }); }
-  catch { return "Just now"; }
+    const diff = (Date.now() - new Date(iso).getTime()) / 60000;
+    return diff > STALE_MINUTES;
+  } catch { return true; }
 }
 
 function timeAgo(iso: string) {
@@ -114,23 +95,33 @@ function timeAgo(iso: string) {
   } catch { return ""; }
 }
 
-function crowdDot(level: string) {
-  if (level.startsWith("🟢")) return { dot: "bg-emerald-500", text: "text-emerald-400", label: "Less / Empty" };
-  if (level.startsWith("🟡")) return { dot: "bg-yellow-500", text: "text-yellow-400", label: "Moderate" };
-  return { dot: "bg-red-500", text: "text-red-400", label: "Very Crowded" };
+function formatTime(iso: string) {
+  try { return new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }); }
+  catch { return ""; }
 }
 
-function CrowdBadge({ level, size = "md" }: { level: string; size?: "sm" | "md" }) {
-  const { dot, text, label } = crowdDot(level);
-  return (
-    <span className={`inline-flex items-center gap-2 ${size === "sm" ? "px-2 py-1 text-xs" : "px-4 py-2 text-sm"} rounded border font-semibold tracking-wide bg-card border-border ${text}`}>
-      <span className={`w-2 h-2 rounded-full ${dot} inline-block`} />
-      {label}
-    </span>
-  );
+function crowdStyle(level: string) {
+  if (level.startsWith("🟢")) return { dot: "bg-emerald-500", text: "text-emerald-400", label: "Less / Empty", bar: "bg-emerald-500" };
+  if (level.startsWith("🟡")) return { dot: "bg-yellow-500", text: "text-yellow-400", label: "Moderate", bar: "bg-yellow-500" };
+  return { dot: "bg-red-500", text: "text-red-400", label: "Very Crowded", bar: "bg-red-500" };
 }
 
-type Tab = "check" | "report" | "history";
+function getBadge(count: number): { label: string; icon: React.ReactNode; color: string } | null {
+  if (count >= 50) return { label: "Mumbai Local Legend", icon: <Award className="w-4 h-4" />, color: "text-yellow-400 border-yellow-400/30 bg-yellow-400/10" };
+  if (count >= 20) return { label: "Commuter Hero", icon: <Trophy className="w-4 h-4" />, color: "text-orange-400 border-orange-400/30 bg-orange-400/10" };
+  if (count >= 5) return { label: "Station Reporter", icon: <Star className="w-4 h-4" />, color: "text-blue-400 border-blue-400/30 bg-blue-400/10" };
+  if (count >= 1) return { label: "New Reporter", icon: <Star className="w-4 h-4" />, color: "text-muted-foreground border-border bg-secondary" };
+  return null;
+}
+
+async function apiFetch(fn: string, body: object) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
 
 export default function App() {
   const [network, setNetwork] = useState("Mumbai Local");
@@ -140,8 +131,10 @@ export default function App() {
   const [crowdSelection, setCrowdSelection] = useState<CrowdLevel | null>(null);
   const [latestReport, setLatestReport] = useState<Report | null>(null);
   const [recentReports, setRecentReports] = useState<Report[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [loadingReport, setLoadingReport] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<"success" | "error" | null>(null);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -151,9 +144,17 @@ export default function App() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationStatus, setLocationStatus] = useState<"idle" | "checking" | "verified" | "too_far" | "no_coords" | "denied">("idle");
   const [distanceMeters, setDistanceMeters] = useState<number | null>(null);
+  const [myReportCount, setMyReportCount] = useState(0);
+  const [feedbackText, setFeedbackText] = useState("");
+  const [feedbackSent, setFeedbackSent] = useState(false);
 
   const lines = Object.keys(STATION_DATABASE[network]);
   const stations = STATION_DATABASE[network][selectedLine] ?? [];
+
+  useEffect(() => {
+    const count = parseInt(localStorage.getItem("ml_report_count") || "0");
+    setMyReportCount(count);
+  }, []);
 
   useEffect(() => {
     const firstLine = Object.keys(STATION_DATABASE[network])[0];
@@ -166,7 +167,10 @@ export default function App() {
   useEffect(() => {
     if (!selectedStation) return;
     setLoadingReport(true);
-    fetchLatestReport(selectedStation).then((r) => { setLatestReport(r); setLoadingReport(false); });
+    apiFetch("fetch_latest_report", { p_station_name: selectedStation }).then((data) => {
+      setLatestReport(data?.[0] ?? null);
+      setLoadingReport(false);
+    });
     setLocationStatus("idle");
     setDistanceMeters(null);
     if (userLocation) checkDistance(userLocation.lat, userLocation.lng, selectedStation);
@@ -175,8 +179,20 @@ export default function App() {
   useEffect(() => {
     if (activeTab !== "history" || !selectedStation) return;
     setLoadingHistory(true);
-    fetchRecentReports(selectedStation).then((r) => { setRecentReports(r); setLoadingHistory(false); });
+    apiFetch("fetch_recent_reports", { p_station_name: selectedStation }).then((data) => {
+      setRecentReports(Array.isArray(data) ? data : []);
+      setLoadingHistory(false);
+    });
   }, [activeTab, selectedStation]);
+
+  useEffect(() => {
+    if (activeTab !== "community") return;
+    setLoadingLeaderboard(true);
+    apiFetch("fetch_leaderboard", {}).then((data) => {
+      setLeaderboard(Array.isArray(data) ? data : []);
+      setLoadingLeaderboard(false);
+    });
+  }, [activeTab]);
 
   function checkDistance(lat: number, lng: number, station: string) {
     const coords = STATION_COORDS[station];
@@ -222,90 +238,101 @@ export default function App() {
   async function handleSubmit() {
     if (!canSubmit) return;
     setSubmitting(true);
-    const ok = await submitReport(network, selectedStation, crowdSelection!, photoBase64!);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/accept_commuter_report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({ p_transit_type: network, p_station_name: selectedStation, p_crowd_level: crowdSelection, p_proof_photo: photoBase64 }),
+      });
+      if (res.ok) {
+        const newCount = myReportCount + 1;
+        localStorage.setItem("ml_report_count", String(newCount));
+        setMyReportCount(newCount);
+        setSubmitStatus("success");
+        setCrowdSelection(null);
+        clearPhoto();
+        setLocationStatus("idle");
+        setUserLocation(null);
+        setTimeout(() => {
+          setSubmitStatus(null);
+          apiFetch("fetch_latest_report", { p_station_name: selectedStation }).then((data) => setLatestReport(data?.[0] ?? null));
+        }, 2500);
+      } else {
+        setSubmitStatus("error");
+      }
+    } catch { setSubmitStatus("error"); }
     setSubmitting(false);
-    setSubmitStatus(ok ? "success" : "error");
-    if (ok) {
-      setCrowdSelection(null);
-      clearPhoto();
-      setLocationStatus("idle");
-      setUserLocation(null);
-      setTimeout(() => {
-        setSubmitStatus(null);
-        fetchLatestReport(selectedStation).then(setLatestReport);
-      }, 2500);
-    }
   }
 
-  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: "check", label: "Live Status", icon: <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" /> },
-    { id: "report", label: "Report", icon: <Camera className="w-4 h-4" /> },
-    { id: "history", label: "History", icon: <History className="w-4 h-4" /> },
-  ];
+  function handleFeedback() {
+    if (!feedbackText.trim()) return;
+    const msg = encodeURIComponent(`MumbaikarlLive Feedback:\n${feedbackText}`);
+    window.open(`https://wa.me/919999999999?text=${msg}`, "_blank");
+    setFeedbackSent(true);
+    setFeedbackText("");
+  }
 
-  const faqs = [
-    { q: "How does MumbaikarlLive verify crowd reports?", a: "Every report requires two proofs: a live photo of the platform or crowd, and GPS location confirmation that you are within 200 metres of the station. This makes it impossible to submit fake reports from home." },
-    { q: "What are peak hours on Mumbai Local trains?", a: "Peak morning rush runs 8:30 AM to 11:00 AM heading into CSMT, Dadar, and Churchgate. Evening peak is 5:30 PM to 9:00 PM in the reverse direction." },
-    { q: "Which Mumbai Metro lines are covered?", a: "We cover Metro Line 1 (Versova–Ghatkopar), Line 2A & 7 (the WEH corridor), and Line 3 Aqua Line from Aarey Colony to Cuffe Parade." },
-    { q: "How often is the crowd data updated?", a: "Data updates in real time as commuters submit verified reports. Popular stations typically receive updates every 5–10 minutes during peak hours." },
-    { q: "Is MumbaikarlLive free to use?", a: "Yes, completely free. No registration required to check crowd levels." },
+  const badge = getBadge(myReportCount);
+  const stale = latestReport ? isStale(latestReport.reported_at) : false;
+
+  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: "check", label: "Live", icon: <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" /> },
+    { id: "report", label: "Report", icon: <Camera className="w-3.5 h-3.5" /> },
+    { id: "history", label: "History", icon: <History className="w-3.5 h-3.5" /> },
+    { id: "community", label: "Community", icon: <Trophy className="w-3.5 h-3.5" /> },
+    { id: "helpline", label: "Helpline", icon: <Phone className="w-3.5 h-3.5" /> },
   ];
 
   return (
     <div className="min-h-screen bg-background text-foreground" style={{ fontFamily: "'Inter', sans-serif" }}>
       {/* Header */}
       <header className="border-b border-border sticky top-0 z-50 bg-background/95 backdrop-blur">
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded bg-primary flex items-center justify-center shrink-0">
               <Train className="w-5 h-5 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-base font-bold leading-none tracking-tight" style={{ fontFamily: "'Rajdhani', sans-serif", color: "#f5820a" }}>MumbaikarlLive</h1>
+              <h1 className="text-base font-bold leading-none" style={{ fontFamily: "'Rajdhani', sans-serif", color: "#f5820a" }}>MumbaikarlLive</h1>
               <p className="text-xs text-muted-foreground">mumbaikarlive.in</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse inline-block" />
-            <span className="hidden sm:inline">Live Updates</span>
-          </div>
+          {badge && (
+            <span className={`hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-semibold ${badge.color}`}>
+              {badge.icon} {badge.label}
+            </span>
+          )}
         </div>
       </header>
 
-      {/* Hero — compact on mobile */}
-      <section className="border-b border-border py-8 md:py-14" style={{ background: "linear-gradient(135deg, #0b1120 0%, #131d30 60%, #1a2234 100%)" }}>
-        <div className="max-w-5xl mx-auto px-4">
-          <div className="flex items-center gap-2 mb-3">
+      {/* Hero */}
+      <section className="border-b border-border py-7 md:py-12" style={{ background: "linear-gradient(135deg, #0b1120 0%, #131d30 60%, #1a2234 100%)" }}>
+        <div className="max-w-2xl mx-auto px-4">
+          <div className="flex items-center gap-2 mb-2">
             <MapPin className="w-4 h-4 text-primary shrink-0" />
             <p className="text-xs font-semibold tracking-widest text-primary uppercase">Mumbai, Maharashtra</p>
           </div>
-          <h2 className="text-3xl md:text-5xl font-bold leading-tight mb-3" style={{ fontFamily: "'Teko', sans-serif", letterSpacing: "0.02em" }}>
+          <h2 className="text-3xl md:text-4xl font-bold leading-tight mb-2" style={{ fontFamily: "'Teko', sans-serif", letterSpacing: "0.02em" }}>
             Real-Time Crowd Tracker<br />
             <span style={{ color: "#f5820a" }}>for Every Mumbai Station</span>
           </h2>
-          <p className="text-muted-foreground max-w-xl text-sm leading-relaxed">
-            GPS + photo verified crowd reports. Western, Central, Harbour, and Metro lines.
-          </p>
-          <div className="flex flex-wrap gap-2 mt-4">
-            {["250+ Stations", "GPS Verified", "Photo Proof", "Real-Time"].map((t) => (
-              <span key={t} className="text-xs border border-border px-3 py-1 rounded-full text-muted-foreground">{t}</span>
+          <p className="text-muted-foreground text-sm leading-relaxed mb-4">GPS + photo verified crowd reports. Western, Central, Harbour, and Metro lines.</p>
+          <div className="flex flex-wrap gap-2">
+            {["250+ Stations", "GPS Verified", "Auto-Expires in 45min", "Community Powered"].map((t) => (
+              <span key={t} className="text-xs border border-border px-2.5 py-1 rounded-full text-muted-foreground">{t}</span>
             ))}
           </div>
         </div>
       </section>
 
       {/* Ad Slot 1 */}
-      <div className="max-w-5xl mx-auto px-4 my-4">
-        <div className="border border-dashed border-border rounded-lg p-3 text-center text-xs text-muted-foreground bg-card">
-          Advertisement
-        </div>
+      <div className="max-w-2xl mx-auto px-4 my-3">
+        <div className="border border-dashed border-border rounded-lg p-2.5 text-center text-xs text-muted-foreground bg-card">Advertisement</div>
       </div>
 
-      <main className="max-w-5xl mx-auto px-4 pb-12">
-
-        {/* Station Selector — always visible */}
-        <div className="bg-card border border-border rounded-xl p-4 mb-4 space-y-3">
-          <h3 className="text-sm font-bold tracking-wide" style={{ fontFamily: "'Rajdhani', sans-serif" }}>Select Station</h3>
+      <main className="max-w-2xl mx-auto px-4 pb-12">
+        {/* Station Selector */}
+        <div className="bg-card border border-border rounded-xl p-4 mb-3 space-y-3">
           <div className="flex rounded-lg overflow-hidden border border-border">
             {Object.keys(STATION_DATABASE).map((n) => (
               <button key={n} onClick={() => setNetwork(n)}
@@ -331,38 +358,42 @@ export default function App() {
           </div>
         </div>
 
-        {/* Mobile Tab Bar */}
+        {/* Tab Bar */}
         <div className="flex rounded-xl overflow-hidden border border-border mb-4 bg-card">
           {tabs.map((tab) => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-3 text-xs font-semibold transition-colors ${activeTab === tab.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              className={`flex-1 flex items-center justify-center gap-1 py-2.5 text-xs font-semibold transition-colors ${activeTab === tab.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
               style={{ fontFamily: "'Rajdhani', sans-serif" }}>
               {tab.icon}
-              {tab.label}
+              <span className="hidden sm:inline">{tab.label}</span>
             </button>
           ))}
         </div>
 
         {/* TAB: Live Status */}
         {activeTab === "check" && (
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="bg-card border border-border rounded-xl p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>📊 Live Status</h3>
-                <span className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="w-3 h-3" /> Real-time</span>
+                <span className="text-xs text-muted-foreground flex items-center gap-1"><Clock className="w-3 h-3" /> Auto-expires in 45min</span>
               </div>
               <div>
                 <p className="text-lg font-bold">{selectedStation}</p>
                 <p className="text-xs text-muted-foreground">{selectedLine}</p>
               </div>
+
               {loadingReport ? (
                 <div className="h-20 flex items-center justify-center">
                   <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                 </div>
-              ) : latestReport ? (
+              ) : latestReport && !stale ? (
                 <div className="space-y-3">
-                  <CrowdBadge level={latestReport.crowd_level} />
-                  <p className="text-xs text-muted-foreground">Last report: {formatTime(latestReport.reported_at)} · {timeAgo(latestReport.reported_at)}</p>
+                  {/* Big crowd indicator */}
+                  <div className={`rounded-xl p-4 border ${crowdStyle(latestReport.crowd_level).text} ${latestReport.crowd_level.startsWith("🟢") ? "bg-emerald-500/10 border-emerald-500/20" : latestReport.crowd_level.startsWith("🟡") ? "bg-yellow-500/10 border-yellow-500/20" : "bg-red-500/10 border-red-500/20"}`}>
+                    <p className="text-2xl font-bold" style={{ fontFamily: "'Teko', sans-serif" }}>{crowdStyle(latestReport.crowd_level).label}</p>
+                    <p className="text-xs opacity-75 mt-1">Reported {timeAgo(latestReport.reported_at)} · {formatTime(latestReport.reported_at)}</p>
+                  </div>
                   <button onClick={() => setActiveTab("report")}
                     className="w-full py-2.5 rounded-lg border border-primary/30 text-primary text-sm font-semibold hover:bg-primary/10 transition-colors"
                     style={{ fontFamily: "'Rajdhani', sans-serif" }}>
@@ -371,152 +402,166 @@ export default function App() {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground bg-secondary rounded-lg p-4">
-                    No recent reports for {selectedStation}. Be the first!
-                  </p>
+                  <div className="rounded-xl p-4 border border-border bg-secondary text-center">
+                    <p className="text-lg font-bold text-muted-foreground" style={{ fontFamily: "'Teko', sans-serif" }}>
+                      {stale && latestReport ? "⚠️ Status Expired" : "❓ No Data Yet"}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {stale && latestReport
+                        ? `Last report was ${timeAgo(latestReport.reported_at)} — too old to trust`
+                        : "No recent reports for this station"}
+                    </p>
+                  </div>
                   <button onClick={() => setActiveTab("report")}
                     className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-bold hover:opacity-90 transition-opacity"
                     style={{ fontFamily: "'Rajdhani', sans-serif" }}>
-                    Submit First Report
+                    Be First to Report
                   </button>
                 </div>
               )}
             </div>
 
-            {/* Peak hours */}
-            <div className="bg-card border border-border rounded-xl p-5">
-              <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-3" style={{ fontFamily: "'Rajdhani', sans-serif" }}>Peak Hours</h3>
-              <div className="space-y-0 text-sm">
-                {[
-                  { label: "Morning Peak", time: "8:30 AM – 11:00 AM", color: "text-red-400" },
-                  { label: "Afternoon Calm", time: "11:30 AM – 5:00 PM", color: "text-emerald-400" },
-                  { label: "Evening Peak", time: "5:30 PM – 9:00 PM", color: "text-red-400" },
-                ].map(({ label, time, color }) => (
-                  <div key={label} className="flex justify-between items-center py-2.5 border-b border-border last:border-0">
-                    <span className="text-muted-foreground text-xs">{label}</span>
-                    <span className={`font-semibold text-xs ${color}`}>{time}</span>
-                  </div>
-                ))}
-              </div>
+            {/* Peak Hours */}
+            <div className="bg-card border border-border rounded-xl p-4">
+              <h3 className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-3" style={{ fontFamily: "'Rajdhani', sans-serif" }}>Peak Hours Guide</h3>
+              {[
+                { label: "Morning Peak", time: "8:30 AM – 11:00 AM", color: "text-red-400" },
+                { label: "Afternoon Calm", time: "11:30 AM – 5:00 PM", color: "text-emerald-400" },
+                { label: "Evening Peak", time: "5:30 PM – 9:00 PM", color: "text-red-400" },
+              ].map(({ label, time, color }) => (
+                <div key={label} className="flex justify-between items-center py-2 border-b border-border last:border-0">
+                  <span className="text-muted-foreground text-xs">{label}</span>
+                  <span className={`font-semibold text-xs ${color}`}>{time}</span>
+                </div>
+              ))}
             </div>
 
-            {/* Share */}
             <a href={`https://wa.me/?text=Check+if+${encodeURIComponent(selectedStation)}+(${encodeURIComponent(selectedLine)})+is+crowded+right+now:+https://mumbaikarlive.in`}
               target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 w-full py-3 rounded-xl border border-emerald-600/40 text-emerald-400 text-sm font-semibold hover:bg-emerald-500/10 transition-colors"
               style={{ fontFamily: "'Rajdhani', sans-serif" }}>
-              <Share2 className="w-4 h-4" />
-              Share {selectedStation} Status on WhatsApp
+              <Share2 className="w-4 h-4" /> Share on WhatsApp
             </a>
           </div>
         )}
 
         {/* TAB: Report */}
         {activeTab === "report" && (
-          <div className="bg-card border border-border rounded-xl p-5 space-y-5">
-            <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>
-              📢 Report at {selectedStation}
-            </h3>
-
-            {/* Step 1 */}
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Step 1 — Crowd Level</p>
-              <div className="grid grid-cols-3 gap-2">
-                {(["🟢 Less / Empty", "🟡 Moderate", "🔴 Very Crowded"] as CrowdLevel[]).map((level) => {
-                  const { dot, label } = crowdDot(level);
-                  return (
-                    <button key={level} onClick={() => setCrowdSelection(level)}
-                      className={`py-4 rounded-xl border text-xs font-semibold tracking-wide transition-all flex flex-col items-center gap-1.5 ${crowdSelection === level ? "border-primary bg-primary/20 text-primary" : "border-border bg-secondary text-muted-foreground"}`}
-                      style={{ fontFamily: "'Rajdhani', sans-serif" }}>
-                      <span className={`w-3 h-3 rounded-full ${dot}`} />
-                      {label}
-                    </button>
-                  );
-                })}
+          <div className="space-y-3">
+            {/* My badge */}
+            {badge && (
+              <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${badge.color}`}>
+                {badge.icon}
+                <div>
+                  <p className="text-xs font-bold">{badge.label}</p>
+                  <p className="text-xs opacity-75">You have submitted {myReportCount} report{myReportCount !== 1 ? "s" : ""}</p>
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Step 2: Photo */}
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Step 2 — Photo Proof</p>
-              {!photoPreview ? (
-                <button onClick={() => fileInputRef.current?.click()}
-                  className="w-full border-2 border-dashed border-border rounded-xl py-8 flex flex-col items-center gap-2 text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors">
-                  <Camera className="w-8 h-8" />
-                  <span className="text-sm font-semibold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>Tap to photograph the platform</span>
-                  <span className="text-xs">Required to prevent fake reports</span>
-                </button>
-              ) : (
-                <div className="relative rounded-xl overflow-hidden border border-border">
-                  <img src={photoPreview} alt="Platform proof" className="w-full max-h-48 object-cover" />
-                  <button onClick={clearPhoto} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 flex items-center justify-center">
-                    <X className="w-4 h-4 text-white" />
+            <div className="bg-card border border-border rounded-xl p-5 space-y-5">
+              <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>📢 Report at {selectedStation}</h3>
+
+              {/* Step 1 */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Step 1 — Crowd Level</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["🟢 Less / Empty", "🟡 Moderate", "🔴 Very Crowded"] as CrowdLevel[]).map((level) => {
+                    const { dot, label } = crowdStyle(level);
+                    return (
+                      <button key={level} onClick={() => setCrowdSelection(level)}
+                        className={`py-4 rounded-xl border text-xs font-semibold tracking-wide transition-all flex flex-col items-center gap-1.5 ${crowdSelection === level ? "border-primary bg-primary/20 text-primary" : "border-border bg-secondary text-muted-foreground"}`}
+                        style={{ fontFamily: "'Rajdhani', sans-serif" }}>
+                        <span className={`w-3 h-3 rounded-full ${dot}`} />
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Step 2: Photo */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Step 2 — Photo Proof</p>
+                {!photoPreview ? (
+                  <button onClick={() => fileInputRef.current?.click()}
+                    className="w-full border-2 border-dashed border-border rounded-xl py-7 flex flex-col items-center gap-2 text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors">
+                    <Camera className="w-7 h-7" />
+                    <span className="text-sm font-semibold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>Tap to photograph platform</span>
+                    <span className="text-xs">Required — prevents fake reports</span>
                   </button>
-                  <div className="absolute bottom-2 left-2 bg-black/60 rounded-full px-3 py-1 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                    <span className="text-xs text-emerald-400">Photo ready</span>
+                ) : (
+                  <div className="relative rounded-xl overflow-hidden border border-border">
+                    <img src={photoPreview} alt="Platform proof" className="w-full max-h-44 object-cover" />
+                    <button onClick={clearPhoto} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 flex items-center justify-center">
+                      <X className="w-4 h-4 text-white" />
+                    </button>
+                    <div className="absolute bottom-2 left-2 bg-black/60 rounded-full px-3 py-1 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                      <span className="text-xs text-emerald-400">Photo ready</span>
+                    </div>
                   </div>
-                </div>
-              )}
-              <input ref={fileInputRef} type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} className="hidden" />
-            </div>
+                )}
+                <input ref={fileInputRef} type="file" accept="image/*" capture="environment" onChange={handlePhotoChange} className="hidden" />
+              </div>
 
-            {/* Step 3: GPS */}
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Step 3 — Verify Location</p>
-              {locationStatus === "idle" && (
-                <button onClick={requestLocation}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-border bg-secondary text-sm font-semibold hover:border-primary/50 hover:text-primary transition-colors"
-                  style={{ fontFamily: "'Rajdhani', sans-serif" }}>
-                  <Navigation className="w-4 h-4" /> Confirm I am at {selectedStation}
-                </button>
-              )}
-              {locationStatus === "checking" && (
-                <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-secondary border border-border text-sm text-muted-foreground">
-                  <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" /> Getting your location...
-                </div>
-              )}
-              {locationStatus === "verified" && (
-                <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-sm text-emerald-400">
-                  <CheckCircle2 className="w-4 h-4" /> Verified — {distanceMeters}m from {selectedStation}
-                </div>
-              )}
-              {locationStatus === "too_far" && (
-                <div className="space-y-2">
+              {/* Step 3: GPS */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Step 3 — Verify Location</p>
+                {locationStatus === "idle" && (
+                  <button onClick={requestLocation}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-border bg-secondary text-sm font-semibold hover:border-primary/50 hover:text-primary transition-colors"
+                    style={{ fontFamily: "'Rajdhani', sans-serif" }}>
+                    <Navigation className="w-4 h-4" /> Confirm I am at {selectedStation}
+                  </button>
+                )}
+                {locationStatus === "checking" && (
+                  <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-secondary border border-border text-sm text-muted-foreground">
+                    <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" /> Getting location...
+                  </div>
+                )}
+                {locationStatus === "verified" && (
+                  <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-sm text-emerald-400">
+                    <CheckCircle2 className="w-4 h-4" /> Verified — {distanceMeters}m from {selectedStation}
+                  </div>
+                )}
+                {locationStatus === "too_far" && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-red-500/10 border border-red-500/30 text-sm text-red-400">
+                      <AlertCircle className="w-4 h-4" /> {distanceMeters}m away — must be within 200m
+                    </div>
+                    <button onClick={requestLocation} className="w-full py-2 rounded-xl border border-border text-xs text-muted-foreground hover:border-primary/50 transition-colors">Try again</button>
+                  </div>
+                )}
+                {locationStatus === "no_coords" && (
+                  <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-sm text-yellow-400">
+                    <CheckCircle2 className="w-4 h-4" /> Location received — proceeding
+                  </div>
+                )}
+                {locationStatus === "denied" && (
                   <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-red-500/10 border border-red-500/30 text-sm text-red-400">
-                    <AlertCircle className="w-4 h-4" /> {distanceMeters}m away — must be within 200m
+                    <AlertCircle className="w-4 h-4" /> Enable GPS in browser settings
                   </div>
-                  <button onClick={requestLocation} className="w-full py-2 rounded-xl border border-border text-xs text-muted-foreground hover:border-primary/50 transition-colors">Try again</button>
+                )}
+              </div>
+
+              {submitStatus === "success" && (
+                <div className="flex items-center gap-2 text-emerald-400 text-sm bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3">
+                  <CheckCircle2 className="w-4 h-4" /> Submitted! You are helping Mumbai commuters 🙏
                 </div>
               )}
-              {locationStatus === "no_coords" && (
-                <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-sm text-yellow-400">
-                  <CheckCircle2 className="w-4 h-4" /> Location received — proceeding
+              {submitStatus === "error" && (
+                <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
+                  <AlertCircle className="w-4 h-4" /> Failed. Please try again.
                 </div>
               )}
-              {locationStatus === "denied" && (
-                <div className="flex items-center gap-2 py-3 px-4 rounded-xl bg-red-500/10 border border-red-500/30 text-sm text-red-400">
-                  <AlertCircle className="w-4 h-4" /> Location denied — enable GPS in browser settings
-                </div>
-              )}
+
+              <button onClick={handleSubmit} disabled={!canSubmit}
+                className="w-full py-4 rounded-xl font-bold tracking-widest text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ fontFamily: "'Rajdhani', sans-serif", background: canSubmit ? "#f5820a" : undefined, color: canSubmit ? "#0b1120" : undefined, border: "1px solid rgba(245,130,10,0.3)" }}>
+                {submitting ? "Submitting..." : !crowdSelection ? "Select crowd level first" : !photoBase64 ? "Take photo first" : locationStatus === "idle" || locationStatus === "denied" ? "Verify location first" : locationStatus === "too_far" ? "Too far from station" : "Broadcast Status"}
+              </button>
             </div>
-
-            {submitStatus === "success" && (
-              <div className="flex items-center gap-2 text-emerald-400 text-sm bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3">
-                <CheckCircle2 className="w-4 h-4" /> Submitted! Thank you for helping Mumbai commuters.
-              </div>
-            )}
-            {submitStatus === "error" && (
-              <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3">
-                <AlertCircle className="w-4 h-4" /> Failed. Please try again.
-              </div>
-            )}
-
-            <button onClick={handleSubmit} disabled={!canSubmit}
-              className="w-full py-4 rounded-xl font-bold tracking-widest text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ fontFamily: "'Rajdhani', sans-serif", background: canSubmit ? "#f5820a" : undefined, color: canSubmit ? "#0b1120" : undefined, border: "1px solid rgba(245,130,10,0.3)" }}>
-              {submitting ? "Submitting..." : !crowdSelection ? "Select crowd level first" : !photoBase64 ? "Take photo first" : locationStatus === "idle" || locationStatus === "denied" ? "Verify location first" : locationStatus === "too_far" ? "Too far from station" : "Broadcast Status"}
-            </button>
           </div>
         )}
 
@@ -524,12 +569,9 @@ export default function App() {
         {activeTab === "history" && (
           <div className="bg-card border border-border rounded-xl p-5 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>
-                📋 Report History
-              </h3>
+              <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>📋 Report History</h3>
               <p className="text-xs text-muted-foreground">{selectedStation}</p>
             </div>
-
             {loadingHistory ? (
               <div className="h-32 flex items-center justify-center">
                 <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -537,17 +579,21 @@ export default function App() {
             ) : recentReports.length === 0 ? (
               <div className="text-sm text-muted-foreground bg-secondary rounded-xl p-6 text-center">
                 No reports yet for {selectedStation}.<br />
-                <button onClick={() => setActiveTab("report")} className="text-primary font-semibold mt-2 inline-block">Be the first to report →</button>
+                <button onClick={() => setActiveTab("report")} className="text-primary font-semibold mt-2 inline-block">Be the first →</button>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1">
                 {recentReports.map((r, i) => {
-                  const { dot, text, label } = crowdDot(r.crowd_level);
+                  const { dot, text, label } = crowdStyle(r.crowd_level);
+                  const expired = isStale(r.reported_at);
                   return (
-                    <div key={i} className="flex items-center justify-between py-3 border-b border-border last:border-0">
+                    <div key={i} className={`flex items-center justify-between py-3 border-b border-border last:border-0 ${expired ? "opacity-40" : ""}`}>
                       <div className="flex items-center gap-3">
                         <span className={`w-3 h-3 rounded-full ${dot} shrink-0`} />
-                        <span className={`text-sm font-semibold ${text}`}>{label}</span>
+                        <div>
+                          <span className={`text-sm font-semibold ${text}`}>{label}</span>
+                          {expired && <span className="ml-2 text-xs text-muted-foreground">(expired)</span>}
+                        </div>
                       </div>
                       <div className="text-right">
                         <p className="text-xs text-foreground">{formatTime(r.reported_at)}</p>
@@ -556,25 +602,176 @@ export default function App() {
                     </div>
                   );
                 })}
-                <p className="text-xs text-muted-foreground text-center pt-2">Showing last {recentReports.length} verified reports</p>
+                <p className="text-xs text-muted-foreground text-center pt-2">Last {recentReports.length} verified reports · Reports expire after 45 min</p>
               </div>
             )}
           </div>
         )}
 
+        {/* TAB: Community */}
+        {activeTab === "community" && (
+          <div className="space-y-3">
+            {/* My Stats */}
+            <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+              <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>🏅 Your Reporter Profile</h3>
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 rounded-full bg-primary/20 border-2 border-primary/30 flex items-center justify-center">
+                  <span className="text-2xl font-bold text-primary" style={{ fontFamily: "'Teko', sans-serif" }}>{myReportCount}</span>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">Total Reports Submitted</p>
+                  {badge ? (
+                    <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-semibold mt-1 ${badge.color}`}>
+                      {badge.icon} {badge.label}
+                    </span>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-1">Submit 1 report to earn your first badge!</p>
+                  )}
+                </div>
+              </div>
+              {/* Badge ladder */}
+              <div className="space-y-2 pt-2 border-t border-border">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Badge Ladder</p>
+                {[
+                  { min: 1, label: "New Reporter", icon: <Star className="w-3 h-3" />, color: "text-muted-foreground" },
+                  { min: 5, label: "Station Reporter", icon: <Star className="w-3 h-3" />, color: "text-blue-400" },
+                  { min: 20, label: "Commuter Hero", icon: <Trophy className="w-3 h-3" />, color: "text-orange-400" },
+                  { min: 50, label: "Mumbai Local Legend", icon: <Award className="w-3 h-3" />, color: "text-yellow-400" },
+                ].map(({ min, label, icon, color }) => (
+                  <div key={label} className={`flex items-center gap-3 py-2 px-3 rounded-lg ${myReportCount >= min ? "bg-primary/10 border border-primary/20" : "bg-secondary border border-transparent opacity-50"}`}>
+                    <span className={color}>{icon}</span>
+                    <span className="text-xs font-semibold flex-1">{label}</span>
+                    <span className="text-xs text-muted-foreground">{min}+ reports</span>
+                    {myReportCount >= min && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Leaderboard */}
+            <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+              <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>🔥 Most Active Stations Today</h3>
+              {loadingLeaderboard ? (
+                <div className="h-24 flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : leaderboard.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No reports today yet — be the first!</p>
+              ) : (
+                <div className="space-y-2">
+                  {leaderboard.map((entry, i) => (
+                    <div key={entry.station_name} className="flex items-center gap-3">
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${i === 0 ? "bg-yellow-400/20 text-yellow-400" : i === 1 ? "bg-gray-400/20 text-gray-400" : i === 2 ? "bg-orange-400/20 text-orange-400" : "bg-secondary text-muted-foreground"}`}>
+                        {i + 1}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate">{entry.station_name}</p>
+                        <div className="w-full bg-secondary rounded-full h-1 mt-1">
+                          <div className="bg-primary h-1 rounded-full" style={{ width: `${Math.min(100, (entry.report_count / (leaderboard[0]?.report_count || 1)) * 100)}%` }} />
+                        </div>
+                      </div>
+                      <span className="text-xs text-muted-foreground shrink-0">{entry.report_count} reports</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* TAB: Helpline */}
+        {activeTab === "helpline" && (
+          <div className="space-y-3">
+            {/* Helpline numbers */}
+            <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+              <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>📞 Railway Helpline Numbers</h3>
+              <p className="text-xs text-muted-foreground">Tap any number to call directly</p>
+              <div className="space-y-2">
+                {HELPLINES.map((h) => (
+                  <a key={h.name} href={`tel:${h.number}`}
+                    className="flex items-center justify-between p-3 rounded-xl bg-secondary border border-border hover:border-primary/40 hover:bg-primary/5 transition-colors group">
+                    <div>
+                      <p className="text-sm font-semibold group-hover:text-primary transition-colors">{h.name}</p>
+                      <p className="text-xs text-muted-foreground">{h.desc}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg font-bold text-primary" style={{ fontFamily: "'Teko', sans-serif" }}>{h.number}</span>
+                      <Phone className="w-4 h-4 text-primary" />
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
+
+            {/* Feedback Form */}
+            <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-primary" />
+                <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>Send Feedback</h3>
+              </div>
+              <p className="text-xs text-muted-foreground">Help us improve MumbaikarlLive — report bugs, suggest features, or share your experience.</p>
+
+              {feedbackSent ? (
+                <div className="flex items-center gap-2 text-emerald-400 text-sm bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3">
+                  <CheckCircle2 className="w-4 h-4" /> Thank you for your feedback!
+                </div>
+              ) : (
+                <>
+                  <textarea
+                    value={feedbackText}
+                    onChange={(e) => setFeedbackText(e.target.value)}
+                    placeholder="Type your feedback here... (e.g. 'GPS verification not working at Andheri station')"
+                    rows={4}
+                    className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+                  />
+                  <button onClick={handleFeedback} disabled={!feedbackText.trim()}
+                    className="w-full py-3 rounded-xl font-bold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    style={{ fontFamily: "'Rajdhani', sans-serif", background: feedbackText.trim() ? "#f5820a" : undefined, color: feedbackText.trim() ? "#0b1120" : undefined, border: "1px solid rgba(245,130,10,0.3)" }}>
+                    Send via WhatsApp
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Safety Guide */}
+            <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>Mumbai Commuter Safety Rules</h3>
+              </div>
+              <ul className="space-y-2 text-xs text-muted-foreground">
+                {[
+                  "Always stand behind the yellow safety line on platforms",
+                  "Never board a moving local train — wait for the next one",
+                  "Use foot overbridges (FOBs) to cross tracks, never walk across",
+                  "Secure your UTS ticket or smart card before boarding",
+                  "Allow alighting passengers to exit before boarding",
+                  "Keep valuables secure in crowded trains — beware of pickpockets",
+                  "In emergency, pull the chain and alert RPF (Railway Police)",
+                ].map((rule) => (
+                  <li key={rule} className="flex items-start gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 shrink-0" />
+                    {rule}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+
         {/* Ad Slot 2 */}
         <div className="my-6">
-          <div className="border border-dashed border-border rounded-lg p-3 text-center text-xs text-muted-foreground bg-card">Advertisement</div>
+          <div className="border border-dashed border-border rounded-lg p-2.5 text-center text-xs text-muted-foreground bg-card">Advertisement</div>
         </div>
 
         {/* How It Works */}
-        <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-2" style={{ fontFamily: "'Teko', sans-serif", letterSpacing: "0.03em" }}>How It Works</h2>
-          <div className="grid sm:grid-cols-3 gap-3 mt-4">
+        <section className="mb-8">
+          <h2 className="text-2xl font-bold mb-4" style={{ fontFamily: "'Teko', sans-serif" }}>How It Works</h2>
+          <div className="grid sm:grid-cols-3 gap-3">
             {[
               { icon: Smartphone, title: "1. Select Station", desc: "Pick your line and platform from 250+ stations across all Mumbai train networks." },
-              { icon: Camera, title: "2. Photo + GPS Proof", desc: "Snap a photo and confirm you are within 200m of the station. No faking allowed." },
-              { icon: TrendingUp, title: "3. Real-Time Results", desc: "See live crowd status with timestamp and 10-report history before you leave home." },
+              { icon: Camera, title: "2. Photo + GPS", desc: "Snap a photo and confirm you are within 200m of the station. Status expires in 45 minutes automatically." },
+              { icon: TrendingUp, title: "3. Check & Plan", desc: "See live crowd level and history. Earn badges for helping fellow commuters." },
             ].map(({ icon: Icon, title, desc }) => (
               <div key={title} className="bg-card border border-border rounded-xl p-4 space-y-2">
                 <div className="w-9 h-9 rounded-lg bg-primary/20 flex items-center justify-center">
@@ -587,30 +784,22 @@ export default function App() {
           </div>
         </section>
 
-        {/* Content */}
-        <section className="mb-10 bg-card border border-border rounded-xl p-5 space-y-3">
-          <div className="flex items-center gap-2 mb-1">
-            <Shield className="w-4 h-4 text-primary" />
-            <h2 className="text-lg font-bold" style={{ fontFamily: "'Teko', sans-serif" }}>Mumbai Commuter Safety Guide</h2>
-          </div>
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            Navigating Mumbai Suburban Railway — Western Line (Churchgate to Virar), Central Line (CSMT to Kalyan), and Harbour Line (CSMT to Panvel) — demands careful planning during peak hours. With over 7 million daily commuters, Mumbai Local is one of the world's busiest rail networks.
-          </p>
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            <strong className="text-foreground">Safety rules every Mumbaikar must know:</strong> Always stand behind the yellow safety line. Never board a moving train. Use foot overbridges (FOBs) to cross tracks. Secure your UTS ticket or smart card before boarding. Allow alighting passengers to exit before boarding at busy stations like Andheri, Dadar, and Thane.
-          </p>
-        </section>
-
         {/* Ad Slot 3 */}
-        <div className="my-6">
-          <div className="border border-dashed border-border rounded-lg p-3 text-center text-xs text-muted-foreground bg-card">Advertisement</div>
+        <div className="mb-8">
+          <div className="border border-dashed border-border rounded-lg p-2.5 text-center text-xs text-muted-foreground bg-card">Advertisement</div>
         </div>
 
         {/* FAQ */}
-        <section className="mb-10">
-          <h2 className="text-2xl font-bold mb-4" style={{ fontFamily: "'Teko', sans-serif", letterSpacing: "0.03em" }}>FAQs</h2>
+        <section className="mb-8">
+          <h2 className="text-2xl font-bold mb-4" style={{ fontFamily: "'Teko', sans-serif" }}>FAQs</h2>
           <div className="space-y-2">
-            {faqs.map((faq, i) => (
+            {[
+              { q: "Why does the status expire after 45 minutes?", a: "To keep data trustworthy. A report from 2 hours ago is useless for your commute right now. If status is older than 45 minutes, we automatically show 'Status Expired' so you always know if the data is fresh." },
+              { q: "How do I earn badges?", a: "Submit verified crowd reports from actual stations. Your report count is saved on your device. Earn 'New Reporter' at 1 report, 'Station Reporter' at 5, 'Commuter Hero' at 20, and 'Mumbai Local Legend' at 50 reports." },
+              { q: "How does GPS verification work?", a: "Your browser checks your current location. You must be within 200 metres of the selected station to submit a report. This prevents people from submitting fake reports from home." },
+              { q: "Which lines are covered?", a: "Western Line (Churchgate–Virar), Central Line (CSMT–Kalyan), Harbour Line (CSMT–Panvel), Trans-Harbour Line, Metro Line 1, 2A & 7, and Metro Line 3 Aqua Line." },
+              { q: "Is MumbaikarlLive free?", a: "Yes, completely free. No registration required. Built for Mumbai commuters by a Mumbaikar." },
+            ].map((faq, i) => (
               <div key={i} className="bg-card border border-border rounded-xl overflow-hidden">
                 <button onClick={() => setOpenFaq(openFaq === i ? null : i)}
                   className="w-full flex items-center justify-between px-4 py-3.5 text-left hover:bg-secondary/50 transition-colors">
@@ -628,14 +817,15 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-border bg-card">
-        <div className="max-w-5xl mx-auto px-4 py-6">
+        <div className="max-w-2xl mx-auto px-4 py-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
               <p className="font-bold text-sm" style={{ fontFamily: "'Rajdhani', sans-serif", color: "#f5820a" }}>MumbaikarlLive</p>
               <p className="text-xs text-muted-foreground">Real-time crowd tracking for Mumbai commuters</p>
             </div>
             <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-              <span>Privacy Policy</span><span>Terms of Service</span><span>Contact</span>
+              <span>Privacy Policy</span><span>Terms of Service</span>
+              <button onClick={() => setActiveTab("helpline")} className="text-primary">Contact / Feedback</button>
             </div>
           </div>
           <p className="text-xs text-muted-foreground mt-4 border-t border-border pt-4">

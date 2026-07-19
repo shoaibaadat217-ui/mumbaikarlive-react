@@ -68,7 +68,7 @@ const STATION_DATABASE: Record<string, Record<string, string[]>> = {
 
 type CrowdLevel = "🟢 Less / Empty" | "🟡 Moderate" | "🔴 Very Crowded";
 type Tab = "check" | "report" | "history" | "community" | "helpline";
-interface Report { crowd_level: string; reported_at: string; }
+interface Report { crowd_level: string; reported_at: string; proof_photo?: string; }
 interface LeaderboardEntry { station_name: string; report_count: number; }
 
 function getDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -121,6 +121,47 @@ async function apiFetch(fn: string, body: object) {
     body: JSON.stringify(body),
   });
   return res.json();
+}
+
+function FreshReports({ reports, onReport, station }: { reports: Report[]; onReport: () => void; station: string }) {
+  const fresh = reports.filter(r => !isStale(r.reported_at));
+  if (fresh.length === 0) {
+    return (
+      <div className="text-sm text-muted-foreground bg-secondary rounded-xl p-6 text-center">
+        No fresh reports for {station} in the last 45 minutes.<br />
+        <button onClick={onReport} className="text-primary font-semibold mt-2 inline-block">Be the first to report →</button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1">
+      {fresh.map((r, i) => {
+        const { dot, text, label } = crowdStyle(r.crowd_level);
+        return (
+          <div key={i} className="py-3 border-b border-border last:border-0 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className={`w-3 h-3 rounded-full ${dot} shrink-0`} />
+                <span className={`text-sm font-semibold ${text}`}>{label}</span>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-foreground">{formatTime(r.reported_at)}</p>
+                <p className="text-xs text-muted-foreground">{timeAgo(r.reported_at)}</p>
+              </div>
+            </div>
+            {r.proof_photo && (
+              <img
+                src={`data:image/jpeg;base64,${r.proof_photo}`}
+                alt="Platform proof"
+                className="w-full max-h-32 object-cover rounded-lg border border-border"
+              />
+            )}
+          </div>
+        );
+      })}
+      <p className="text-xs text-muted-foreground text-center pt-2">{fresh.length} fresh report{fresh.length !== 1 ? "s" : ""} in last 45 min</p>
+    </div>
+  );
 }
 
 export default function App() {
@@ -297,11 +338,10 @@ export default function App() {
               <p className="text-xs text-muted-foreground">mumbaikarlive.in</p>
             </div>
           </div>
-          {badge && (
-            <span className={`hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-semibold ${badge.color}`}>
-              {badge.icon} {badge.label}
-            </span>
-          )}
+          <button onClick={() => setActiveTab("helpline")}
+            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full border border-red-500/40 bg-red-500/10 text-red-400 font-semibold hover:bg-red-500/20 transition-colors">
+            <Phone className="w-3 h-3" /> 139 Helpline
+          </button>
         </div>
       </header>
 
@@ -389,11 +429,23 @@ export default function App() {
                 </div>
               ) : latestReport && !stale ? (
                 <div className="space-y-3">
-                  {/* Big crowd indicator */}
                   <div className={`rounded-xl p-4 border ${crowdStyle(latestReport.crowd_level).text} ${latestReport.crowd_level.startsWith("🟢") ? "bg-emerald-500/10 border-emerald-500/20" : latestReport.crowd_level.startsWith("🟡") ? "bg-yellow-500/10 border-yellow-500/20" : "bg-red-500/10 border-red-500/20"}`}>
                     <p className="text-2xl font-bold" style={{ fontFamily: "'Teko', sans-serif" }}>{crowdStyle(latestReport.crowd_level).label}</p>
                     <p className="text-xs opacity-75 mt-1">Reported {timeAgo(latestReport.reported_at)} · {formatTime(latestReport.reported_at)}</p>
                   </div>
+                  {latestReport.proof_photo && (
+                    <div className="rounded-xl overflow-hidden border border-border">
+                      <img
+                        src={`data:image/jpeg;base64,${latestReport.proof_photo}`}
+                        alt={`Live platform photo at ${selectedStation}`}
+                        className="w-full max-h-52 object-cover"
+                      />
+                      <div className="px-3 py-2 bg-secondary flex items-center gap-2">
+                        <Camera className="w-3 h-3 text-muted-foreground" />
+                        <p className="text-xs text-muted-foreground">Live photo proof from commuter · {formatTime(latestReport.reported_at)}</p>
+                      </div>
+                    </div>
+                  )}
                   <button onClick={() => setActiveTab("report")}
                     className="w-full py-2.5 rounded-lg border border-primary/30 text-primary text-sm font-semibold hover:bg-primary/10 transition-colors"
                     style={{ fontFamily: "'Rajdhani', sans-serif" }}>
@@ -582,28 +634,7 @@ export default function App() {
                 <button onClick={() => setActiveTab("report")} className="text-primary font-semibold mt-2 inline-block">Be the first →</button>
               </div>
             ) : (
-              <div className="space-y-1">
-                {recentReports.map((r, i) => {
-                  const { dot, text, label } = crowdStyle(r.crowd_level);
-                  const expired = isStale(r.reported_at);
-                  return (
-                    <div key={i} className={`flex items-center justify-between py-3 border-b border-border last:border-0 ${expired ? "opacity-40" : ""}`}>
-                      <div className="flex items-center gap-3">
-                        <span className={`w-3 h-3 rounded-full ${dot} shrink-0`} />
-                        <div>
-                          <span className={`text-sm font-semibold ${text}`}>{label}</span>
-                          {expired && <span className="ml-2 text-xs text-muted-foreground">(expired)</span>}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-foreground">{formatTime(r.reported_at)}</p>
-                        <p className="text-xs text-muted-foreground">{timeAgo(r.reported_at)}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-                <p className="text-xs text-muted-foreground text-center pt-2">Last {recentReports.length} verified reports · Reports expire after 45 min</p>
-              </div>
+              <FreshReports reports={recentReports} onReport={() => setActiveTab("report")} station={selectedStation} />
             )}
           </div>
         )}

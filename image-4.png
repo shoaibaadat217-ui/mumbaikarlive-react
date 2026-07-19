@@ -1,0 +1,6 @@
+{
+  "name": "HalalTrade India",
+  "description": "Trade only halal stocks on the Indian market. Full Shariah rulings, live charts, portfolio tracker, and built-in dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -68,7 +68,7 @@ const STATION_DATABASE: Record<string, Record<string, string[]>> = {
 
 type CrowdLevel = "🟢 Less / Empty" | "🟡 Moderate" | "🔴 Very Crowded";
 type Tab = "check" | "report" | "history" | "community" | "helpline";
-interface Report { crowd_level: string; reported_at: string; }
+interface Report { crowd_level: string; reported_at: string; proof_photo?: string; }
 interface LeaderboardEntry { station_name: string; report_count: number; }
 
 function getDistanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -121,6 +121,79 @@ async function apiFetch(fn: string, body: object) {
     body: JSON.stringify(body),
   });
   return res.json();
+}
+
+function FreshReports({ reports, onReport, station }: { reports: Report[]; onReport: () => void; station: string }) {
+  const fresh = reports.filter(r => !isStale(r.reported_at));
+  if (fresh.length === 0) {
+    return (
+      <div className="text-sm text-muted-foreground bg-secondary rounded-xl p-6 text-center">
+        No fresh reports for {station} in the last 45 minutes.<br />
+        <button onClick={onReport} className="text-primary font-semibold mt-2 inline-block">Be the first to report →</button>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-1">
+      {fresh.map((r, i) => {
+        const { dot, text, label } = crowdStyle(r.crowd_level);
+        return (
+          <div key={i} className="py-3 border-b border-border last:border-0 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <span className={`w-3 h-3 rounded-full ${dot} shrink-0`} />
+                <span className={`text-sm font-semibold ${text}`}>{label}</span>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-foreground">{formatTime(r.reported_at)}</p>
+                <p className="text-xs text-muted-foreground">{timeAgo(r.reported_at)}</p>
+              </div>
+            </div>
+            {r.proof_photo && (
+              <img
+                src={`data:image/jpeg;base64,${r.proof_photo}`}
+                alt="Platform proof"
+                className="w-full max-h-32 object-cover rounded-lg border border-border"
+              />
+            )}
+          </div>
+        );
+      })}
+      <p className="text-xs text-muted-foreground text-center pt-2">{fresh.length} fresh report{fresh.length !== 1 ? "s" : ""} in last 45 min</p>
+    </div>
+  );
+}
+
+function HelplinesBar() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full border border-red-500/40 bg-red-500/10 text-red-400 font-semibold hover:bg-red-500/20 transition-colors">
+        <Phone className="w-3 h-3" /> 139 Helpline
+      </button>
+      {open && (
+        <div className="absolute right-0 top-9 w-72 bg-card border border-border rounded-xl shadow-2xl z-50 overflow-hidden">
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <p className="text-sm font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>📞 Railway Helplines</p>
+            <button onClick={() => setOpen(false)}><X className="w-4 h-4 text-muted-foreground" /></button>
+          </div>
+          <div className="max-h-80 overflow-y-auto">
+            {HELPLINES.map((h) => (
+              <a key={h.name} href={`tel:${h.number}`} onClick={() => setOpen(false)}
+                className="flex items-center justify-between px-4 py-3 border-b border-border last:border-0 hover:bg-secondary transition-colors">
+                <div>
+                  <p className="text-xs font-semibold">{h.name}</p>
+                  <p className="text-xs text-muted-foreground">{h.desc}</p>
+                </div>
+                <span className="text-base font-bold text-primary ml-3 shrink-0" style={{ fontFamily: "'Teko', sans-serif" }}>{h.number}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function App() {
@@ -280,7 +353,6 @@ export default function App() {
     { id: "report", label: "Report", icon: <Camera className="w-3.5 h-3.5" /> },
     { id: "history", label: "History", icon: <History className="w-3.5 h-3.5" /> },
     { id: "community", label: "Community", icon: <Trophy className="w-3.5 h-3.5" /> },
-    { id: "helpline", label: "Helpline", icon: <Phone className="w-3.5 h-3.5" /> },
   ];
 
   return (
@@ -297,11 +369,7 @@ export default function App() {
               <p className="text-xs text-muted-foreground">mumbaikarlive.in</p>
             </div>
           </div>
-          {badge && (
-            <span className={`hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-semibold ${badge.color}`}>
-              {badge.icon} {badge.label}
-            </span>
-          )}
+          <HelplinesBar />
         </div>
       </header>
 
@@ -389,11 +457,23 @@ export default function App() {
                 </div>
               ) : latestReport && !stale ? (
                 <div className="space-y-3">
-                  {/* Big crowd indicator */}
                   <div className={`rounded-xl p-4 border ${crowdStyle(latestReport.crowd_level).text} ${latestReport.crowd_level.startsWith("🟢") ? "bg-emerald-500/10 border-emerald-500/20" : latestReport.crowd_level.startsWith("🟡") ? "bg-yellow-500/10 border-yellow-500/20" : "bg-red-500/10 border-red-500/20"}`}>
                     <p className="text-2xl font-bold" style={{ fontFamily: "'Teko', sans-serif" }}>{crowdStyle(latestReport.crowd_level).label}</p>
                     <p className="text-xs opacity-75 mt-1">Reported {timeAgo(latestReport.reported_at)} · {formatTime(latestReport.reported_at)}</p>
                   </div>
+                  {latestReport.proof_photo && (
+                    <div className="rounded-xl overflow-hidden border border-border">
+                      <img
+                        src={`data:image/jpeg;base64,${latestReport.proof_photo}`}
+                        alt={`Live platform photo at ${selectedStation}`}
+                        className="w-full max-h-52 object-cover"
+                      />
+                      <div className="px-3 py-2 bg-secondary flex items-center gap-2">
+                        <Camera className="w-3 h-3 text-muted-foreground" />
+                        <p className="text-xs text-muted-foreground">Live photo proof from commuter · {formatTime(latestReport.reported_at)}</p>
+                      </div>
+                    </div>
+                  )}
                   <button onClick={() => setActiveTab("report")}
                     className="w-full py-2.5 rounded-lg border border-primary/30 text-primary text-sm font-semibold hover:bg-primary/10 transition-colors"
                     style={{ fontFamily: "'Rajdhani', sans-serif" }}>
@@ -582,28 +662,7 @@ export default function App() {
                 <button onClick={() => setActiveTab("report")} className="text-primary font-semibold mt-2 inline-block">Be the first →</button>
               </div>
             ) : (
-              <div className="space-y-1">
-                {recentReports.map((r, i) => {
-                  const { dot, text, label } = crowdStyle(r.crowd_level);
-                  const expired = isStale(r.reported_at);
-                  return (
-                    <div key={i} className={`flex items-center justify-between py-3 border-b border-border last:border-0 ${expired ? "opacity-40" : ""}`}>
-                      <div className="flex items-center gap-3">
-                        <span className={`w-3 h-3 rounded-full ${dot} shrink-0`} />
-                        <div>
-                          <span className={`text-sm font-semibold ${text}`}>{label}</span>
-                          {expired && <span className="ml-2 text-xs text-muted-foreground">(expired)</span>}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs text-foreground">{formatTime(r.reported_at)}</p>
-                        <p className="text-xs text-muted-foreground">{timeAgo(r.reported_at)}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-                <p className="text-xs text-muted-foreground text-center pt-2">Last {recentReports.length} verified reports · Reports expire after 45 min</p>
-              </div>
+              <FreshReports reports={recentReports} onReport={() => setActiveTab("report")} station={selectedStation} />
             )}
           </div>
         )}
@@ -682,6 +741,44 @@ export default function App() {
         {/* TAB: Helpline */}
         {activeTab === "helpline" && (
           <div className="space-y-3">
+            {/* About Us */}
+            <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+              <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>🚇 About MumbaikarlLive</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                MumbaikarlLive is a free, community-powered crowd tracking platform built for Mumbai's 7 million daily train commuters. We cover all Western Line, Central Line, Harbour Line, Trans-Harbour, and Metro stations across Mumbai.
+              </p>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Every crowd report on MumbaikarlLive is verified with GPS location (within 200 metres of the station) and a live photo — making it impossible to submit fake data. Reports automatically expire after 45 minutes so you always see fresh, trustworthy information.
+              </p>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Our mission is simple: help every Mumbaikar plan their commute smarter, avoid overcrowded platforms, and travel safely.
+              </p>
+            </div>
+
+            {/* Contact Us */}
+            <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+              <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>📬 Contact Us</h3>
+              <p className="text-sm text-muted-foreground">Have a suggestion, found a bug, or want to partner with us? We'd love to hear from you.</p>
+              <div className="space-y-2">
+                <a href="mailto:contact@mumbaikarlive.in"
+                  className="flex items-center gap-3 p-3 rounded-xl bg-secondary border border-border hover:border-primary/40 transition-colors">
+                  <MessageSquare className="w-4 h-4 text-primary shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold">Email Us</p>
+                    <p className="text-xs text-muted-foreground">contact@mumbaikarlive.in</p>
+                  </div>
+                </a>
+                <a href="https://wa.me/919999999999?text=Hi%20MumbaikarlLive%20Team" target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-3 rounded-xl bg-secondary border border-border hover:border-emerald-500/40 transition-colors">
+                  <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold">WhatsApp</p>
+                    <p className="text-xs text-muted-foreground">Message us on WhatsApp</p>
+                  </div>
+                </a>
+              </div>
+            </div>
+
             {/* Helpline numbers */}
             <div className="bg-card border border-border rounded-xl p-5 space-y-3">
               <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>📞 Railway Helpline Numbers</h3>
@@ -824,8 +921,10 @@ export default function App() {
               <p className="text-xs text-muted-foreground">Real-time crowd tracking for Mumbai commuters</p>
             </div>
             <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-              <span>Privacy Policy</span><span>Terms of Service</span>
-              <button onClick={() => setActiveTab("helpline")} className="text-primary">Contact / Feedback</button>
+              <span>Privacy Policy</span>
+              <span>Terms of Service</span>
+              <button onClick={() => setActiveTab("helpline")} className="text-primary">About Us</button>
+              <button onClick={() => setActiveTab("helpline")} className="text-primary">Contact Us</button>
             </div>
           </div>
           <p className="text-xs text-muted-foreground mt-4 border-t border-border pt-4">

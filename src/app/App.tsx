@@ -164,6 +164,38 @@ function FreshReports({ reports, onReport, station }: { reports: Report[]; onRep
   );
 }
 
+function HelplinesBar() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full border border-red-500/40 bg-red-500/10 text-red-400 font-semibold hover:bg-red-500/20 transition-colors">
+        <Phone className="w-3 h-3" /> 139 Helpline
+      </button>
+      {open && (
+        <div className="absolute right-0 top-9 w-72 bg-card border border-border rounded-xl shadow-2xl z-50 overflow-hidden">
+          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+            <p className="text-sm font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>📞 Railway Helplines</p>
+            <button onClick={() => setOpen(false)}><X className="w-4 h-4 text-muted-foreground" /></button>
+          </div>
+          <div className="max-h-80 overflow-y-auto">
+            {HELPLINES.map((h) => (
+              <a key={h.name} href={`tel:${h.number}`} onClick={() => setOpen(false)}
+                className="flex items-center justify-between px-4 py-3 border-b border-border last:border-0 hover:bg-secondary transition-colors">
+                <div>
+                  <p className="text-xs font-semibold">{h.name}</p>
+                  <p className="text-xs text-muted-foreground">{h.desc}</p>
+                </div>
+                <span className="text-base font-bold text-primary ml-3 shrink-0" style={{ fontFamily: "'Teko', sans-serif" }}>{h.number}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function App() {
   const [network, setNetwork] = useState("Mumbai Local");
   const [selectedLine, setSelectedLine] = useState("Western Line");
@@ -321,7 +353,6 @@ export default function App() {
     { id: "report", label: "Report", icon: <Camera className="w-3.5 h-3.5" /> },
     { id: "history", label: "History", icon: <History className="w-3.5 h-3.5" /> },
     { id: "community", label: "Community", icon: <Trophy className="w-3.5 h-3.5" /> },
-    { id: "helpline", label: "Helpline", icon: <Phone className="w-3.5 h-3.5" /> },
   ];
 
   return (
@@ -338,10 +369,7 @@ export default function App() {
               <p className="text-xs text-muted-foreground">mumbaikarlive.in</p>
             </div>
           </div>
-          <button onClick={() => setActiveTab("helpline")}
-            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-full border border-red-500/40 bg-red-500/10 text-red-400 font-semibold hover:bg-red-500/20 transition-colors">
-            <Phone className="w-3 h-3" /> 139 Helpline
-          </button>
+          <HelplinesBar />
         </div>
       </header>
 
@@ -713,6 +741,44 @@ export default function App() {
         {/* TAB: Helpline */}
         {activeTab === "helpline" && (
           <div className="space-y-3">
+            {/* About Us */}
+            <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+              <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>🚇 About MumbaikarlLive</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                MumbaikarlLive is a free, community-powered crowd tracking platform built for Mumbai's 7 million daily train commuters. We cover all Western Line, Central Line, Harbour Line, Trans-Harbour, and Metro stations across Mumbai.
+              </p>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Every crowd report on MumbaikarlLive is verified with GPS location (within 200 metres of the station) and a live photo — making it impossible to submit fake data. Reports automatically expire after 45 minutes so you always see fresh, trustworthy information.
+              </p>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                Our mission is simple: help every Mumbaikar plan their commute smarter, avoid overcrowded platforms, and travel safely.
+              </p>
+            </div>
+
+            {/* Contact Us */}
+            <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+              <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>📬 Contact Us</h3>
+              <p className="text-sm text-muted-foreground">Have a suggestion, found a bug, or want to partner with us? We'd love to hear from you.</p>
+              <div className="space-y-2">
+                <a href="mailto:contact@mumbaikarlive.in"
+                  className="flex items-center gap-3 p-3 rounded-xl bg-secondary border border-border hover:border-primary/40 transition-colors">
+                  <MessageSquare className="w-4 h-4 text-primary shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold">Email Us</p>
+                    <p className="text-xs text-muted-foreground">contact@mumbaikarlive.in</p>
+                  </div>
+                </a>
+                <a href="https://wa.me/919999999999?text=Hi%20MumbaikarlLive%20Team" target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-3 rounded-xl bg-secondary border border-border hover:border-emerald-500/40 transition-colors">
+                  <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold">WhatsApp</p>
+                    <p className="text-xs text-muted-foreground">Message us on WhatsApp</p>
+                  </div>
+                </a>
+              </div>
+            </div>
+
             {/* Helpline numbers */}
             <div className="bg-card border border-border rounded-xl p-5 space-y-3">
               <h3 className="text-base font-bold" style={{ fontFamily: "'Rajdhani', sans-serif" }}>📞 Railway Helpline Numbers</h3>
@@ -855,8 +921,10 @@ export default function App() {
               <p className="text-xs text-muted-foreground">Real-time crowd tracking for Mumbai commuters</p>
             </div>
             <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-              <span>Privacy Policy</span><span>Terms of Service</span>
-              <button onClick={() => setActiveTab("helpline")} className="text-primary">Contact / Feedback</button>
+              <span>Privacy Policy</span>
+              <span>Terms of Service</span>
+              <button onClick={() => setActiveTab("helpline")} className="text-primary">About Us</button>
+              <button onClick={() => setActiveTab("helpline")} className="text-primary">Contact Us</button>
             </div>
           </div>
           <p className="text-xs text-muted-foreground mt-4 border-t border-border pt-4">
